@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Verification App</title>
+    <!-- Tailwind CSS CDN for easy styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f4f8;
+            color: #333;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            max-width: 90vw;
+            width: 100%;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        video,
+        canvas {
+            border-radius: 0.75rem;
+            /* Keep transform: scaleX(-1) for webcam video for mirror effect */
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            /* Fixed height for video/canvas */
+            overflow: hidden;
+            /* Ensure content stays within bounds */
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            background-color: #e2e8f0;
+            /* Placeholder background */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: #718096;
+            line-height: 1.5;
+        }
+
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            /* Ensures video covers the container */
+            z-index: 1;
+            transform: scaleX(-1);
+            /* Mirror effect for webcam */
+            -webkit-transform: scaleX(-1);
+            /* Safari and Chrome */
+            -moz-transform: scaleX(-1);
+            /* Firefox */
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            /* No mirroring on canvas itself, handled by draw context below */
+        }
+
+        input[type="file"] {
+            display: none;
+            /* Hide default file input */
+        }
+
+        .custom-file-upload {
+            border: 2px solid #3b82f6;
+            color: #3b82f6;
+            background-color: #eff6ff;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .custom-file-upload:hover {
+            background-color: #2563eb;
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn-primary {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn-primary:hover {
+            background-color: #2563eb;
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-secondary {
+            background-color: #6b7280;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 12px rgba(107, 114, 128, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background-color: #4b5563;
+            box-shadow: 0 6px 16px rgba(107, 114, 128, 0.3);
+        }
+
+        .message {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .message.success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .message.error {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+
+        .message.info {
+            background-color: #e0f2fe;
+            color: #0c4a6e;
+        }
+
+        .score {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #3b82f6;
+        }
+
+        /* Ensure uploaded image preview stays within bounds and doesn't overlap */
+        .uploaded-image-preview {
+            max-width: 100%;
+            height: auto;
+            /* Allow height to adjust naturally to maintain aspect ratio */
+            max-height: 200px;
+            /* Constrain maximum height */
+            object-fit: contain;
+            border-radius: 0.75rem;
+            margin-top: 1rem;
+            /* Adjusted margin-top */
+            border: 2px dashed #a0aec0;
+            padding: 0.5rem;
+            box-sizing: border-box;
+            display: block;
+            /* Ensure it behaves as a block element */
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .left-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            overflow: hidden;
+            /* Crucial: Clips content that extends beyond the panel's boundaries */
+            position: relative;
+            /* Establishes a stacking context if needed */
+        }
+
+        .right-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            overflow: hidden;
+            /* Added for consistency, though issue was on left */
+            position: relative;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+                justify-content: space-around;
+                align-items: flex-start;
+                max-width: 800px;
+            }
+
+            .left-panel,
+            .right-panel {
+                width: 48%;
+            }
+
+            .video-container {
+                height: 350px;
+            }
+        }
+    </style>
+    <!-- face-api.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+
+<body class="p-4">
+    <div class="container">
+        <div class="left-panel">
+            <h2 class="text-2xl font-bold mb-4 text-center">Reference Image</h2>
+            <div class="flex flex-col items-center gap-4">
+                <label for="imageUpload" class="custom-file-upload">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                    </svg>
+                    Upload Reference Image
+                </label>
+                <input type="file" id="imageUpload" accept="image/*" class="hidden">
+                <img id="uploadedImagePreview" class="uploaded-image-preview hidden" alt="Uploaded Image Preview">
+                <canvas id="uploadedImageCanvas" class="uploaded-image-preview hidden"></canvas>
+                <p id="imageStatus" class="text-gray-600 text-sm">No image uploaded.</p>
+                <p id="imageDescriptorStatus" class="text-gray-600 text-sm"></p>
+                <!-- AI Description section removed -->
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <h2 class="text-2xl font-bold mb-4 text-center">Live Camera Feed</h2>
+            <div class="flex flex-col items-center gap-4">
+                <button id="startCameraButton" class="btn-primary">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z">
+                        </path>
+                    </svg>
+                    Start Camera
+                </button>
+                <div id="videoContainer" class="video-container">
+                    <video id="webcamVideo" autoplay muted></video>
+                    <canvas id="webcamCanvas"></canvas>
+                    <p id="cameraStatus">Camera Off</p>
+                </div>
+                <div id="matchResult" class="message info">Awaiting input...</div>
+                <div id="matchScore" class="score hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const imageUpload = document.getElementById('imageUpload');
+        const uploadedImagePreview = document.getElementById('uploadedImagePreview');
+        const uploadedImageCanvas = document.getElementById('uploadedImageCanvas');
+        const imageStatus = document.getElementById('imageStatus');
+        const imageDescriptorStatus = document.getElementById('imageDescriptorStatus');
+        // Removed aiDescriptionSection and aiDescriptionText
+        const startCameraButton = document.getElementById('startCameraButton');
+        const webcamVideo = document.getElementById('webcamVideo');
+        const webcamCanvas = document.getElementById('webcamCanvas');
+        const cameraStatus = document.getElementById('cameraStatus');
+        const matchResultDiv = document.getElementById('matchResult');
+        const matchScoreDiv = document.getElementById('matchScore');
+
+        let uploadedFaceDescriptor = null;
+        let videoStream = null;
+        let intervalId = null;
+
+        // Threshold for face matching (lower value means stricter match, distance < threshold = match)
+        const MATCH_THRESHOLD = 0.6; // Common values are 0.5-0.7
+
+        // Define the base URL for face-api.js models on a CDN
+        const FACE_API_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+
+        // Gemini API configuration and related functions removed
+
+        // --- Load Face-API.js Models ---
+        async function loadModels() {
+            try {
+                matchResultDiv.className = 'message info';
+                matchResultDiv.innerText = 'Loading AI models... This may take a moment.';
+                // Load models from the CDN URL
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(FACE_API_MODELS_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODELS_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODELS_URL);
+                // Removed loading of faceExpressionNet and ageGenderNet
+                matchResultDiv.className = 'message success';
+                matchResultDiv.innerText = 'AI models loaded successfully!';
+                console.log('Face-API.js models loaded.');
+            } catch (error) {
+                matchResultDiv.className = 'message error';
+                matchResultDiv.innerText = `Error loading AI models: ${error.message}. Please check your internet connection or the model URL.`;
+                console.error('Error loading face-api.js models:', error);
+            }
+        }
+
+        // --- Handle Image Upload ---
+        imageUpload.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                uploadedImagePreview.classList.add('hidden');
+                uploadedImageCanvas.classList.add('hidden');
+                imageStatus.innerText = 'No image selected.';
+                imageDescriptorStatus.innerText = '';
+                uploadedFaceDescriptor = null;
+                // Removed aiDescriptionSection.classList.add('hidden');
+                matchResultDiv.className = 'message info';
+                matchResultDiv.innerText = 'Please upload an image and start the camera.';
+                matchScoreDiv.classList.add('hidden');
+                return;
+            }
+
+            imageStatus.innerText = 'Processing image...';
+            uploadedImageCanvas.classList.remove('hidden');
+            uploadedImagePreview.classList.add('hidden');
+
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            img.onload = async () => {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+
+                const renderedWidth = uploadedImageCanvas.clientWidth;
+                const renderedHeight = uploadedImageCanvas.clientHeight;
+
+                uploadedImageCanvas.width = renderedWidth;
+                uploadedImageCanvas.height = renderedHeight;
+
+                const ctx = uploadedImageCanvas.getContext('2d');
+                ctx.clearRect(0, 0, uploadedImageCanvas.width, uploadedImageCanvas.height);
+                ctx.drawImage(img, 0, 0, uploadedImageCanvas.width, uploadedImageCanvas.height);
+
+                try {
+                    const detections = await faceapi.detectSingleFace(img)
+                        .withFaceLandmarks()
+                        // Removed .withFaceExpressions() and .withAgeAndGender()
+                        .withFaceDescriptor();
+
+                    if (detections) {
+                        uploadedFaceDescriptor = detections.descriptor;
+                        imageStatus.innerText = 'Image uploaded and face detected!';
+                        imageDescriptorStatus.innerText = `Descriptor ready.`;
+
+                        const displaySizeForDrawing = { width: uploadedImageCanvas.width, height: uploadedImageCanvas.height };
+                        const resizedDetections = faceapi.resizeResults(detections, displaySizeForDrawing);
+
+                        // Draw detections and landmarks
+                        faceapi.draw.drawDetections(uploadedImageCanvas, resizedDetections);
+                        faceapi.draw.drawFaceLandmarks(uploadedImageCanvas, resizedDetections);
+
+                        // Removed drawing face expressions, age and gender
+
+                        console.log('Uploaded image face descriptor:', uploadedFaceDescriptor);
+                        // Removed call to generateFaceDescription(detections);
+
+                    } else {
+                        uploadedFaceDescriptor = null;
+                        imageStatus.innerText = 'No face detected in the uploaded image. Please try another image.';
+                        imageDescriptorStatus.innerText = '';
+                        uploadedImageCanvas.classList.add('hidden'); // Hide canvas if no face detected
+                        // Removed aiDescriptionSection.classList.add('hidden');
+                        matchResultDiv.className = 'message error';
+                        matchResultDiv.innerText = 'No face detected in uploaded image. Cannot perform match.';
+                        matchScoreDiv.classList.add('hidden');
+                    }
+                } catch (error) {
+                    uploadedFaceDescriptor = null;
+                    imageStatus.innerText = `Error processing image: ${error.message}.`;
+                    imageDescriptorStatus.innerText = '';
+                    uploadedImageCanvas.classList.add('hidden'); // Hide canvas on error
+                    // Removed aiDescriptionSection.classList.add('hidden');
+                    matchResultDiv.className = 'message error';
+                    matchResultDiv.innerText = `Error processing uploaded image: ${error.message}`;
+                    matchScoreDiv.classList.add('hidden');
+                    console.error('Error processing uploaded image:', error);
+                }
+                URL.revokeObjectURL(img.src);
+            };
+            img.onerror = () => {
+                imageStatus.innerText = 'Error loading image. Please ensure it is a valid image file.';
+                uploadedImagePreview.classList.add('hidden');
+                uploadedImageCanvas.classList.add('hidden'); // Hide canvas on error
+                imageDescriptorStatus.innerText = '';
+                uploadedFaceDescriptor = null;
+                // Removed aiDescriptionSection.classList.add('hidden');
+                matchResultDiv.className = 'message error';
+                matchResultDiv.innerText = 'Error loading uploaded image.';
+                matchScoreDiv.classList.add('hidden');
+            };
+        });
+
+        // --- Start Camera ---
+        startCameraButton.addEventListener('click', async () => {
+            if (videoStream) {
+                // Stop existing stream if any
+                videoStream.getTracks().forEach(track => track.stop());
+                webcamVideo.srcObject = null;
+                cameraStatus.innerText = 'Camera Off';
+                clearInterval(intervalId);
+                intervalId = null;
+                matchResultDiv.className = 'message info';
+                matchResultDiv.innerText = 'Camera stopped. Please upload an image and start the camera.';
+                matchScoreDiv.classList.add('hidden');
+                return;
+            }
+
+            cameraStatus.innerText = 'Requesting camera access...';
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamVideo.srcObject = videoStream;
+                cameraStatus.innerText = 'Camera On';
+
+                webcamVideo.addEventListener('play', () => {
+                    // Get video intrinsic dimensions
+                    const videoWidth = webcamVideo.videoWidth;
+                    const videoHeight = webcamVideo.videoHeight;
+
+                    // Set canvas dimensions to match the video's intrinsic size
+                    webcamCanvas.width = videoWidth;
+                    webcamCanvas.height = videoHeight;
+
+                    // Adjust CSS display size to fit container while maintaining aspect ratio
+                    const videoContainer = document.getElementById('videoContainer');
+                    const containerWidth = videoContainer.clientWidth;
+                    const containerHeight = videoContainer.clientHeight;
+
+                    const videoAspectRatio = videoWidth / videoHeight;
+                    const containerAspectRatio = containerWidth / containerHeight;
+
+                    let newWidth = containerWidth;
+                    let newHeight = containerHeight;
+
+                    if (videoAspectRatio > containerAspectRatio) {
+                        // Video is wider than container, fit by width
+                        newHeight = containerWidth / videoAspectRatio;
+                    } else {
+                        // Video is taller than container, fit by height
+                        newWidth = containerHeight * videoAspectRatio;
+                    }
+
+                    webcamVideo.style.width = `${newWidth}px`;
+                    webcamVideo.style.height = `${newHeight}px`;
+                    webcamCanvas.style.width = `${newWidth}px`;
+                    webcamCanvas.style.height = `${newHeight}px`;
+
+                    // Position the video and canvas in the center of the container
+                    webcamVideo.style.left = `${(containerWidth - newWidth) / 2}px`;
+                    webcamVideo.style.top = `${(containerHeight - newHeight) / 2}px`;
+                    webcamCanvas.style.left = `${(containerWidth - newWidth) / 2}px`;
+                    webcamCanvas.style.top = `${(containerHeight - newHeight) / 2}px`;
+
+                    if (intervalId) clearInterval(intervalId);
+
+                    intervalId = setInterval(async () => {
+                        if (!uploadedFaceDescriptor) {
+                            matchResultDiv.className = 'message info';
+                            matchResultDiv.innerText = 'Please upload a reference image to start matching.';
+                            matchScoreDiv.classList.add('hidden');
+                            webcamCanvas.getContext('2d').clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
+                            return;
+                        }
+
+                        // Detect face in the live video stream
+                        const detections = await faceapi.detectSingleFace(webcamVideo)
+                            .withFaceLandmarks()
+                            // Removed .withFaceExpressions() and .withAgeAndGender()
+                            .withFaceDescriptor();
+
+                        const ctx = webcamCanvas.getContext('2d');
+                        ctx.clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
+
+                        if (detections) {
+                            // The webcam video is horizontally flipped with CSS transform: scaleX(-1).
+                            // To draw detections correctly, we need to apply a corresponding transformation
+                            // to the canvas's 2D rendering context.
+
+                            ctx.save(); // Save the current state of the canvas context
+
+                            // Translate to the right edge of the canvas, then scale by -1
+                            // This flips the drawing horizontally
+                            ctx.translate(webcamCanvas.width, 0);
+                            ctx.scale(-1, 1);
+
+                            // Resize detections to fit the canvas's intrinsic (non-CSS transformed) size
+                            const resizedDetections = faceapi.resizeResults(detections, { width: webcamCanvas.width, height: webcamCanvas.height });
+
+                            // Draw detections and landmarks on the transformed canvas
+                            faceapi.draw.drawDetections(webcamCanvas, resizedDetections);
+                            faceapi.draw.drawFaceLandmarks(webcamCanvas, resizedDetections);
+                            // Removed drawing face expressions, age and gender
+
+                            ctx.restore(); // Restore the canvas context to its original (unflipped) state
+
+                            // Perform face matching - this uses the raw descriptor, so no drawing context needed
+                            const distance = faceapi.euclideanDistance(uploadedFaceDescriptor, detections.descriptor);
+                            const score = ((1 - distance) * 100).toFixed(2);
+
+                            matchScoreDiv.classList.remove('hidden');
+                            matchScoreDiv.innerText = `Similarity Score: ${score}%`;
+
+                            if (distance < MATCH_THRESHOLD) {
+                                matchResultDiv.className = 'message success';
+                                matchResultDiv.innerText = 'Match Found!';
+                            } else {
+                                matchResultDiv.className = 'message error';
+                                matchResultDiv.innerText = 'No Match.';
+                            }
+                        } else {
+                            matchResultDiv.className = 'message info';
+                            matchResultDiv.innerText = 'No face detected in camera.';
+                            matchScoreDiv.classList.add('hidden');
+                        }
+                    }, 100); // Run detection every 100ms
+                });
+            } catch (err) {
+                cameraStatus.innerText = `Error accessing camera: ${err.name}. Please ensure camera is enabled and not in use by another application.`;
+                matchResultDiv.className = 'message error';
+                matchResultDiv.innerText = `Camera access denied or error: ${err.message}`;
+                matchScoreDiv.classList.add('hidden');
+                console.error('Error accessing camera:', err);
+            }
+        });
+
+        // --- Initialize ---
+        loadModels();
+    </script>
+</body>
+
+</html>
