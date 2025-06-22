@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Face Verification App</title>
+    <title>Multi-Face Verification App</title>
     <!-- Tailwind CSS CDN for easy styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -46,7 +46,6 @@
         video,
         canvas {
             border-radius: 0.75rem;
-            /* Keep transform: scaleX(-1) for webcam video for mirror effect */
         }
 
         .video-container {
@@ -92,7 +91,6 @@
             width: 100%;
             height: 100%;
             z-index: 2;
-            /* No mirroring on canvas itself, handled by draw context below */
         }
 
         input[type="file"] {
@@ -184,22 +182,68 @@
             color: #3b82f6;
         }
 
-        /* Ensure uploaded image preview stays within bounds and doesn't overlap */
+        /* Style for uploaded images container */
+        #uploadedImagesContainer {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+            max-width: 100%;
+        }
+
+        .uploaded-image-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border: 2px dashed #a0aec0;
+            border-radius: 0.75rem;
+            padding: 0.5rem;
+            box-sizing: border-box;
+            width: 120px;
+            /* Fixed width for small previews */
+            height: 150px;
+            /* Fixed height to accommodate index below */
+            position: relative;
+            overflow: hidden;
+            /* Hide overflow from canvas drawing */
+        }
+
+        .uploaded-image-item canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            /* Ensure image fits without cropping */
+            border-radius: 0.5rem;
+        }
+
+        .uploaded-image-item .index-label {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.5rem;
+            font-size: 0.8rem;
+            z-index: 3;
+            /* Above canvas */
+        }
+
         .uploaded-image-preview {
             max-width: 100%;
             height: auto;
-            /* Allow height to adjust naturally to maintain aspect ratio */
             max-height: 200px;
-            /* Constrain maximum height */
             object-fit: contain;
             border-radius: 0.75rem;
             margin-top: 1rem;
-            /* Adjusted margin-top */
             border: 2px dashed #a0aec0;
             padding: 0.5rem;
             box-sizing: border-box;
             display: block;
-            /* Ensure it behaves as a block element */
             margin-left: auto;
             margin-right: auto;
         }
@@ -211,9 +255,7 @@
             align-items: center;
             gap: 1.5rem;
             overflow: hidden;
-            /* Crucial: Clips content that extends beyond the panel's boundaries */
             position: relative;
-            /* Establishes a stacking context if needed */
         }
 
         .right-panel {
@@ -223,7 +265,6 @@
             align-items: center;
             gap: 1.5rem;
             overflow: hidden;
-            /* Added for consistency, though issue was on left */
             position: relative;
         }
 
@@ -252,22 +293,21 @@
 <body class="p-4">
     <div class="container">
         <div class="left-panel">
-            <h2 class="text-2xl font-bold mb-4 text-center">Reference Image</h2>
-            <div class="flex flex-col items-center gap-4">
+            <h2 class="text-2xl font-bold mb-4 text-center">Reference Images</h2>
+            <div class="flex flex-col items-center gap-4 w-full">
                 <label for="imageUpload" class="custom-file-upload">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         xmlns="http://www.w3.org/2000/svg">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
                     </svg>
-                    Upload Reference Image
+                    Upload Reference Images (Multiple)
                 </label>
-                <input type="file" id="imageUpload" accept="image/*" class="hidden">
-                <img id="uploadedImagePreview" class="uploaded-image-preview hidden" alt="Uploaded Image Preview">
-                <canvas id="uploadedImageCanvas" class="uploaded-image-preview hidden"></canvas>
-                <p id="imageStatus" class="text-gray-600 text-sm">No image uploaded.</p>
-                <p id="imageDescriptorStatus" class="text-gray-600 text-sm"></p>
-                <!-- AI Description section removed -->
+                <input type="file" id="imageUpload" accept="image/*" class="hidden" multiple>
+                <p id="imageStatus" class="text-gray-600 text-sm">No images uploaded.</p>
+                <div id="uploadedImagesContainer" class="w-full">
+                    <!-- Uploaded images with their canvases and indexes will be dynamically added here -->
+                </div>
             </div>
         </div>
 
@@ -296,11 +336,8 @@
 
     <script>
         const imageUpload = document.getElementById('imageUpload');
-        const uploadedImagePreview = document.getElementById('uploadedImagePreview');
-        const uploadedImageCanvas = document.getElementById('uploadedImageCanvas');
         const imageStatus = document.getElementById('imageStatus');
-        const imageDescriptorStatus = document.getElementById('imageDescriptorStatus');
-        // Removed aiDescriptionSection and aiDescriptionText
+        const uploadedImagesContainer = document.getElementById('uploadedImagesContainer');
         const startCameraButton = document.getElementById('startCameraButton');
         const webcamVideo = document.getElementById('webcamVideo');
         const webcamCanvas = document.getElementById('webcamCanvas');
@@ -308,130 +345,133 @@
         const matchResultDiv = document.getElementById('matchResult');
         const matchScoreDiv = document.getElementById('matchScore');
 
-        let uploadedFaceDescriptor = null;
+        // Array to store descriptors and their original index
+        let uploadedFacesData = [];
         let videoStream = null;
         let intervalId = null;
 
         // Threshold for face matching (lower value means stricter match, distance < threshold = match)
         const MATCH_THRESHOLD = 0.5; // Common values are 0.5-0.7
 
-        // Define the base URL for face-api.js models on a CDN
-        const FACE_API_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-
-        // Gemini API configuration and related functions removed
+        // Define the base URL for face-api.js models to be loaded from the local 'weights' directory
+        // IMPORTANT: For local deployment (e.g., GitHub Pages), change this to './weights'
+        // const FACE_API_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+        const FACE_API_MODELS_URL = './weights';
 
         // --- Load Face-API.js Models ---
         async function loadModels() {
             try {
                 matchResultDiv.className = 'message info';
                 matchResultDiv.innerText = 'Loading AI models... This may take a moment.';
-                // Load models from the CDN URL
+                // Load models from the specified URL
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(FACE_API_MODELS_URL);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODELS_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODELS_URL);
-                // Removed loading of faceExpressionNet and ageGenderNet
                 matchResultDiv.className = 'message success';
                 matchResultDiv.innerText = 'AI models loaded successfully!';
                 console.log('Face-API.js models loaded.');
             } catch (error) {
                 matchResultDiv.className = 'message error';
-                matchResultDiv.innerText = `Error loading AI models: ${error.message}. Please check your internet connection or the model URL.`;
+                matchResultDiv.innerText = `Error loading AI models: ${error.message}. Please ensure the model URL is correct and accessible. For local deployment (e.g., GitHub Pages), ensure the 'weights' folder is correctly placed and contains all necessary model files.`;
                 console.error('Error loading face-api.js models:', error);
             }
         }
 
-        // --- Handle Image Upload ---
+        // --- Handle Image Upload (for multiple files) ---
         imageUpload.addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (!file) {
-                uploadedImagePreview.classList.add('hidden');
-                uploadedImageCanvas.classList.add('hidden');
-                imageStatus.innerText = 'No image selected.';
-                imageDescriptorStatus.innerText = '';
-                uploadedFaceDescriptor = null;
-                // Removed aiDescriptionSection.classList.add('hidden');
+            const files = event.target.files;
+            uploadedFacesData = []; // Clear previous uploads
+            uploadedImagesContainer.innerHTML = ''; // Clear previous image previews
+
+            if (files.length === 0) {
+                imageStatus.innerText = 'No images selected.';
                 matchResultDiv.className = 'message info';
-                matchResultDiv.innerText = 'Please upload an image and start the camera.';
+                matchResultDiv.innerText = 'Please upload images and start the camera.';
                 matchScoreDiv.classList.add('hidden');
                 return;
             }
 
-            imageStatus.innerText = 'Processing image...';
-            uploadedImageCanvas.classList.remove('hidden');
-            uploadedImagePreview.classList.add('hidden');
+            imageStatus.innerText = `Processing ${files.length} image(s)...`;
 
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-            img.onload = async () => {
-                await new Promise(resolve => requestAnimationFrame(resolve));
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'uploaded-image-item';
 
-                const renderedWidth = uploadedImageCanvas.clientWidth;
-                const renderedHeight = uploadedImageCanvas.clientHeight;
+                const canvas = document.createElement('canvas');
+                canvas.className = 'uploaded-image-preview'; // Reusing class for basic styling
+                itemDiv.appendChild(canvas);
 
-                uploadedImageCanvas.width = renderedWidth;
-                uploadedImageCanvas.height = renderedHeight;
+                const indexLabel = document.createElement('span');
+                indexLabel.className = 'index-label';
+                indexLabel.innerText = `ID: ${i}`; // Displaying index below image
+                itemDiv.appendChild(indexLabel);
 
-                const ctx = uploadedImageCanvas.getContext('2d');
-                ctx.clearRect(0, 0, uploadedImageCanvas.width, uploadedImageCanvas.height);
-                ctx.drawImage(img, 0, 0, uploadedImageCanvas.width, uploadedImageCanvas.height);
+                uploadedImagesContainer.appendChild(itemDiv);
 
-                try {
-                    const detections = await faceapi.detectSingleFace(img)
-                        .withFaceLandmarks()
-                        // Removed .withFaceExpressions() and .withAgeAndGender()
-                        .withFaceDescriptor();
+                const img = new Image();
+                img.src = URL.createObjectURL(file);
 
-                    if (detections) {
-                        uploadedFaceDescriptor = detections.descriptor;
-                        imageStatus.innerText = 'Image uploaded and face detected!';
-                        imageDescriptorStatus.innerText = `Descriptor ready.`;
+                img.onload = async () => {
+                    // Set canvas dimensions to match the image's original dimensions for accurate detection
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
 
-                        const displaySizeForDrawing = { width: uploadedImageCanvas.width, height: uploadedImageCanvas.height };
-                        const resizedDetections = faceapi.resizeResults(detections, displaySizeForDrawing);
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                        // Draw detections and landmarks
-                        faceapi.draw.drawDetections(uploadedImageCanvas, resizedDetections);
-                        faceapi.draw.drawFaceLandmarks(uploadedImageCanvas, resizedDetections);
+                    try {
+                        const detections = await faceapi.detectSingleFace(img)
+                            .withFaceLandmarks()
+                            .withFaceDescriptor();
 
-                        // Removed drawing face expressions, age and gender
+                        if (detections) {
+                            // Store the descriptor along with its original index
+                            uploadedFacesData.push({
+                                index: i,
+                                descriptor: detections.descriptor
+                            });
 
-                        console.log('Uploaded image face descriptor:', uploadedFaceDescriptor);
-                        // Removed call to generateFaceDescription(detections);
+                            // Resize detections to fit the canvas display size for drawing
+                            const displaySizeForDrawing = { width: canvas.width, height: canvas.height };
+                            const resizedDetections = faceapi.resizeResults(detections, displaySizeForDrawing);
 
-                    } else {
-                        uploadedFaceDescriptor = null;
-                        imageStatus.innerText = 'No face detected in the uploaded image. Please try another image.';
-                        imageDescriptorStatus.innerText = '';
-                        uploadedImageCanvas.classList.add('hidden'); // Hide canvas if no face detected
-                        // Removed aiDescriptionSection.classList.add('hidden');
-                        matchResultDiv.className = 'message error';
-                        matchResultDiv.innerText = 'No face detected in uploaded image. Cannot perform match.';
-                        matchScoreDiv.classList.add('hidden');
+                            faceapi.draw.drawDetections(canvas, resizedDetections);
+                            faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+
+                            console.log(`Face detected for image ID ${i}.`);
+                        } else {
+                            // If no face detected, mark it and update status
+                            indexLabel.innerText = `ID: ${i} (No face)`;
+                            indexLabel.style.backgroundColor = '#991b1b'; // Red for no face
+                            console.log(`No face detected for image ID ${i}.`);
+                        }
+                    } catch (error) {
+                        indexLabel.innerText = `ID: ${i} (Error)`;
+                        indexLabel.style.backgroundColor = '#991b1b'; // Red for error
+                        console.error(`Error processing image ID ${i}:`, error);
                     }
-                } catch (error) {
-                    uploadedFaceDescriptor = null;
-                    imageStatus.innerText = `Error processing image: ${error.message}.`;
-                    imageDescriptorStatus.innerText = '';
-                    uploadedImageCanvas.classList.add('hidden'); // Hide canvas on error
-                    // Removed aiDescriptionSection.classList.add('hidden');
-                    matchResultDiv.className = 'message error';
-                    matchResultDiv.innerText = `Error processing uploaded image: ${error.message}`;
-                    matchScoreDiv.classList.add('hidden');
-                    console.error('Error processing uploaded image:', error);
-                }
-                URL.revokeObjectURL(img.src);
-            };
-            img.onerror = () => {
-                imageStatus.innerText = 'Error loading image. Please ensure it is a valid image file.';
-                uploadedImagePreview.classList.add('hidden');
-                uploadedImageCanvas.classList.add('hidden'); // Hide canvas on error
-                imageDescriptorStatus.innerText = '';
-                uploadedFaceDescriptor = null;
-                // Removed aiDescriptionSection.classList.add('hidden');
-                matchResultDiv.className = 'message error';
-                matchResultDiv.innerText = 'Error loading uploaded image.';
-                matchScoreDiv.classList.add('hidden');
-            };
+                    URL.revokeObjectURL(img.src); // Clean up memory
+
+                    // Update status after all images are processed or after a short delay
+                    if (i === files.length - 1) { // Check if this is the last image
+                        if (uploadedFacesData.length > 0) {
+                            imageStatus.innerText = `${uploadedFacesData.length} face(s) loaded. Ready for verification.`;
+                        } else {
+                            imageStatus.innerText = 'No usable faces found in uploaded images.';
+                            matchResultDiv.className = 'message error';
+                            matchResultDiv.innerText = 'No reference faces to match against.';
+                        }
+                    }
+                };
+                img.onerror = () => {
+                    indexLabel.innerText = `ID: ${i} (Load Error)`;
+                    indexLabel.style.backgroundColor = '#991b1b';
+                    console.error(`Error loading image ID ${i}.`);
+                    URL.revokeObjectURL(img.src);
+                };
+            }
         });
 
         // --- Start Camera ---
@@ -444,7 +484,7 @@
                 clearInterval(intervalId);
                 intervalId = null;
                 matchResultDiv.className = 'message info';
-                matchResultDiv.innerText = 'Camera stopped. Please upload an image and start the camera.';
+                matchResultDiv.innerText = 'Camera stopped. Upload images and start camera.';
                 matchScoreDiv.classList.add('hidden');
                 return;
             }
@@ -497,55 +537,53 @@
                     if (intervalId) clearInterval(intervalId);
 
                     intervalId = setInterval(async () => {
-                        if (!uploadedFaceDescriptor) {
+                        if (uploadedFacesData.length === 0) {
                             matchResultDiv.className = 'message info';
-                            matchResultDiv.innerText = 'Please upload a reference image to start matching.';
+                            matchResultDiv.innerText = 'Please upload reference images to start matching.';
                             matchScoreDiv.classList.add('hidden');
                             webcamCanvas.getContext('2d').clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
                             return;
                         }
 
                         // Detect face in the live video stream
-                        const detections = await faceapi.detectSingleFace(webcamVideo)
+                        const liveDetections = await faceapi.detectSingleFace(webcamVideo)
                             .withFaceLandmarks()
-                            // Removed .withFaceExpressions() and .withAgeAndGender()
                             .withFaceDescriptor();
 
                         const ctx = webcamCanvas.getContext('2d');
                         ctx.clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
 
-                        if (detections) {
-                            // The webcam video is horizontally flipped with CSS transform: scaleX(-1).
-                            // To draw detections correctly, we need to apply a corresponding transformation
-                            // to the canvas's 2D rendering context.
-
-                            ctx.save(); // Save the current state of the canvas context
-
-                            // Translate to the right edge of the canvas, then scale by -1
-                            // This flips the drawing horizontally
+                        if (liveDetections) {
+                            ctx.save();
                             ctx.translate(webcamCanvas.width, 0);
                             ctx.scale(-1, 1);
 
-                            // Resize detections to fit the canvas's intrinsic (non-CSS transformed) size
-                            const resizedDetections = faceapi.resizeResults(detections, { width: webcamCanvas.width, height: webcamCanvas.height });
+                            const resizedLiveDetections = faceapi.resizeResults(liveDetections, { width: webcamCanvas.width, height: webcamCanvas.height });
 
-                            // Draw detections and landmarks on the transformed canvas
-                            faceapi.draw.drawDetections(webcamCanvas, resizedDetections);
-                            faceapi.draw.drawFaceLandmarks(webcamCanvas, resizedDetections);
-                            // Removed drawing face expressions, age and gender
+                            faceapi.draw.drawDetections(webcamCanvas, resizedLiveDetections);
+                            faceapi.draw.drawFaceLandmarks(webcamCanvas, resizedLiveDetections);
 
-                            ctx.restore(); // Restore the canvas context to its original (unflipped) state
+                            ctx.restore();
 
-                            // Perform face matching - this uses the raw descriptor, so no drawing context needed
-                            const distance = faceapi.euclideanDistance(uploadedFaceDescriptor, detections.descriptor);
-                            const score = ((1 - distance) * 100).toFixed(2);
+                            let minDistance = Infinity;
+                            let bestMatchIndex = -1;
 
+                            // Compare live face descriptor against all uploaded face descriptors
+                            uploadedFacesData.forEach(faceData => {
+                                const distance = faceapi.euclideanDistance(liveDetections.descriptor, faceData.descriptor);
+                                if (distance < minDistance) {
+                                    minDistance = distance;
+                                    bestMatchIndex = faceData.index;
+                                }
+                            });
+
+                            const score = ((1 - minDistance) * 100).toFixed(2);
                             matchScoreDiv.classList.remove('hidden');
                             matchScoreDiv.innerText = `Similarity Score: ${score}%`;
 
-                            if (distance < MATCH_THRESHOLD) {
+                            if (minDistance < MATCH_THRESHOLD) {
                                 matchResultDiv.className = 'message success';
-                                matchResultDiv.innerText = 'Match Found!';
+                                matchResultDiv.innerText = `Match Found with Image ID: ${bestMatchIndex}!`;
                             } else {
                                 matchResultDiv.className = 'message error';
                                 matchResultDiv.innerText = 'No Match.';
